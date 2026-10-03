@@ -21,6 +21,7 @@ const DESKTOP_NAV_ITEMS: NavItem[] = [
   { label: "Services", href: "#services" },
   { label: "Packages", href: "#pricing" },
   { label: "Work", href: "#work" },
+  { label: "Reviews", href: "#reviews" },
   { label: "Process", href: "#methodology" },
   { label: "About", href: "#about" },
 ];
@@ -30,6 +31,7 @@ const MOBILE_NAV_ITEMS: NavItem[] = [
   { label: "Services", href: "#services" },
   { label: "Packages", href: "#pricing" },
   { label: "Work", href: "#work" },
+  { label: "Reviews", href: "#reviews" },
   { label: "Process", href: "#methodology" },
   { label: "About", href: "#about" },
   { label: "Connect", href: "#contact" },

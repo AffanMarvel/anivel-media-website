@@ -126,25 +126,45 @@ export class LeadService {
    * Columns: Date, Time, Name, Business, Email, Phone, Instagram, Website, City, Service, Plan, Budget, Message, Lead Status, Notes
    */
   private static async appendToGoogleSheet(record: Record<string, string>): Promise<void> {
+    const GOOGLE_SHEET_FALLBACK_URL =
+      "https://script.google.com/macros/s/AKfycbxhLaJ2i9PBiGzOMshLhIom__o8nlKQUQx29iPERM3fUxeHKpcnkflLNuNw7N61vF4Svg/exec";
+    const webhookUrl = process.env.GOOGLE_SHEET_WEBHOOK_URL || GOOGLE_SHEET_FALLBACK_URL;
+
+    if (webhookUrl) {
+      try {
+        console.log("[LeadService] Forwarding inquiry to Google Sheet webhook:", webhookUrl);
+        await fetch(webhookUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fullName: record.Name,
+            brandName: record.Business,
+            email: record.Email,
+            phone: record.Phone,
+            instagramOrWebsite: record.Instagram !== "N/A" ? record.Instagram : record.Website,
+            city: record.City,
+            selectedPlan: `${record.Service} - ${record.Plan}`,
+            projectNotes: record.Message,
+            termsAccepted: "YES",
+            status: "INQUIRY",
+          }),
+          redirect: "follow",
+        });
+      } catch (err) {
+        console.error("[LeadService] Error forwarding inquiry to Google Sheets webhook:", err);
+      }
+    }
+
     const sheetId = process.env.GOOGLE_SHEET_ID;
     const clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
     const privateKey = process.env.GOOGLE_PRIVATE_KEY;
 
     if (!sheetId || !clientEmail || !privateKey) {
       console.log(
-        "[LeadService] Google Sheets credentials not configured. Lead logged safely server-side:",
+        "[LeadService] Direct Google Sheets credentials not configured. Webhook handled logging:",
         JSON.stringify(record, null, 2)
       );
       return;
-    }
-
-    try {
-      // In production with credentials, call Google Sheets v4 API
-      console.log(`[LeadService] Appending row to Google Sheet: ${sheetId}`);
-      // Pluggable Google Sheets API logic here
-    } catch (err) {
-      console.error("[LeadService] Error updating Google Sheet:", err);
-      // Graceful degradation: never fail the user request if sheet write fails
     }
   }
 

@@ -113,8 +113,11 @@ export async function POST(req: NextRequest) {
 
     console.log("[Onboarding API] New Lead Received:", JSON.stringify(record, null, 2));
 
-    // Send to Google Sheet Webhook if configured
-    const googleSheetWebhookUrl = process.env.GOOGLE_SHEET_WEBHOOK_URL;
+    // Send to Google Sheet Webhook (with production fallback if env var is missing in deployment)
+    const GOOGLE_SHEET_FALLBACK_URL =
+      "https://script.google.com/macros/s/AKfycbxhLaJ2i9PBiGzOMshLhIom__o8nlKQUQx29iPERM3fUxeHKpcnkflLNuNw7N61vF4Svg/exec";
+    const googleSheetWebhookUrl = process.env.GOOGLE_SHEET_WEBHOOK_URL || GOOGLE_SHEET_FALLBACK_URL;
+
     if (googleSheetWebhookUrl) {
       try {
         console.log("[Onboarding API] Forwarding lead to Google Sheets webhook:", googleSheetWebhookUrl);
@@ -129,10 +132,6 @@ export async function POST(req: NextRequest) {
       } catch (sheetErr) {
         console.error("[Onboarding API] Google Sheets webhook error (gracefully handled):", sheetErr);
       }
-    } else {
-      console.log(
-        "[Onboarding API] GOOGLE_SHEET_WEBHOOK_URL is not set in .env.local. The submission was logged to console."
-      );
     }
 
     return NextResponse.json(

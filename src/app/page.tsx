@@ -16,6 +16,7 @@ import { WhyAnivelSection } from "@/components/WhyAnivelSection";
 import { AboutSection } from "@/components/AboutSection";
 import { SocialEcosystemSection } from "@/components/SocialEcosystemSection";
 import { StatsCounter } from "@/components/StatsCounter";
+import { ReviewsSection } from "@/components/ReviewsSection";
 import { FAQSection } from "@/components/FAQSection";
 import { ContactSection } from "@/components/ContactSection";
 import { Footer } from "@/components/Footer";
@@ -117,7 +118,12 @@ export default function HomePage() {
         <StatsCounter />
       </ScrollExpand>
 
-      {/* 14: Inquiries & FAQ Accordion (13 Questions) */}
+      {/* 14: Client Reviews & Verified Testimonials (0 Initial Reviews) */}
+      <ScrollExpand>
+        <ReviewsSection />
+      </ScrollExpand>
+
+      {/* 15: Inquiries & FAQ Accordion (13 Questions) */}
       <ScrollExpand>
         <FAQSection onOpenInquiry={() => handleOpenInquiry()} />
       </ScrollExpand>
