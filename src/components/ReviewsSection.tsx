@@ -16,6 +16,7 @@ import {
   Check,
   Trash2,
   User,
+  PlusCircle,
 } from "lucide-react";
 import confetti from "canvas-confetti";
 import { ReviewItem } from "@/lib/types/review";
@@ -31,20 +32,29 @@ export function ReviewsSection() {
       setLoading(true);
       const res = await fetch("/api/reviews");
       const data = await res.json();
-      if (data.success && Array.isArray(data.reviews)) {
-        let localApproved: ReviewItem[] = [];
-        try {
-          const cached = localStorage.getItem("anivel_approved_reviews");
-          if (cached) localApproved = JSON.parse(cached);
-        } catch {}
-        const combined = [...data.reviews];
-        localApproved.forEach((lr) => {
-          if (!combined.some((c) => c.id === lr.id)) combined.unshift(lr);
-        });
-        setReviews(combined);
-      }
+
+      let localApproved: ReviewItem[] = [];
+      try {
+        const cached = localStorage.getItem("anivel_approved_reviews");
+        if (cached) localApproved = JSON.parse(cached);
+      } catch {}
+
+      const serverApproved: ReviewItem[] = data.success && Array.isArray(data.reviews) ? data.reviews : [];
+      
+      // Merge unique reviews by id
+      const mergedMap = new Map<string, ReviewItem>();
+      localApproved.forEach((r) => mergedMap.set(r.id, r));
+      serverApproved.forEach((r) => mergedMap.set(r.id, r));
+
+      const combined = Array.from(mergedMap.values());
+      setReviews(combined);
     } catch (err) {
       console.error("Failed to load reviews:", err);
+      // Fallback to local storage if network or server error
+      try {
+        const cached = localStorage.getItem("anivel_approved_reviews");
+        if (cached) setReviews(JSON.parse(cached));
+      } catch {}
     } finally {
       setLoading(false);
     }
@@ -214,7 +224,7 @@ export function ReviewsSection() {
         </div>
       </div>
 
-      {/* Modals rendered via Portal so they escape overflow-hidden parent (ScrollExpand) */}
+      {/* Modals rendered via Portal so they escape overflow-hidden parent */}
       {isWriteModalOpen &&
         typeof document !== "undefined" &&
         createPortal(
@@ -240,7 +250,7 @@ export function ReviewsSection() {
   );
 }
 
-// ─── OVERLAY STYLES (inline so they always work regardless of Tailwind compilation) ─────
+// ─── STYLES ──────────────────────────────────────────────────────────────────
 const OVERLAY_STYLE: React.CSSProperties = {
   position: "fixed",
   inset: 0,
@@ -268,7 +278,7 @@ const MODAL_STYLE: React.CSSProperties = {
 
 const MODAL_WIDE_STYLE: React.CSSProperties = {
   ...MODAL_STYLE,
-  maxWidth: "720px",
+  maxWidth: "740px",
 };
 
 const INPUT_STYLE: React.CSSProperties = {
@@ -286,7 +296,7 @@ const INPUT_STYLE: React.CSSProperties = {
 const TEXTAREA_STYLE: React.CSSProperties = {
   ...INPUT_STYLE,
   resize: "none",
-  minHeight: "100px",
+  minHeight: "90px",
 };
 
 const BTN_CRIMSON: React.CSSProperties = {
@@ -297,10 +307,10 @@ const BTN_CRIMSON: React.CSSProperties = {
   color: "#ffffff",
   border: "none",
   borderRadius: "12px",
-  padding: "12px 24px",
+  padding: "10px 20px",
   fontWeight: 700,
   fontSize: "12px",
-  letterSpacing: "0.08em",
+  letterSpacing: "0.06em",
   textTransform: "uppercase",
   cursor: "pointer",
 };
@@ -400,18 +410,38 @@ function WriteReviewModal({ onClose, onSuccess }: WriteReviewModalProps) {
     if (!review.trim() || review.trim().length < 5) { setErrorMessage("Please write your experience."); return; }
     setSubmitting(true);
     setErrorMessage("");
+
+    const newPendingReview: ReviewItem = {
+      id: `rev_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      name: name.trim(),
+      brandOrRole: brandOrRole.trim() || "Verified Client",
+      rating,
+      review: review.trim(),
+      image: imagePreview || undefined,
+      status: "pending",
+      createdAt: new Date().toISOString(),
+    };
+
+    // 1. Immediately cache in local storage as pending
+    try {
+      const existingPending = JSON.parse(localStorage.getItem("anivel_pending_reviews") || "[]");
+      existingPending.unshift(newPendingReview);
+      localStorage.setItem("anivel_pending_reviews", JSON.stringify(existingPending));
+    } catch {}
+
     try {
       const res = await fetch("/api/reviews", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), brandOrRole: brandOrRole.trim() || undefined, rating, review: review.trim(), image: imagePreview || undefined }),
+        body: JSON.stringify(newPendingReview),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.message || "Failed to submit.");
       setSuccessSubmitted(true);
       try { confetti({ particleCount: 60, spread: 60, origin: { y: 0.6 }, colors: ["#CB2957", "#FFFFFF"] }); } catch {}
     } catch (err: unknown) {
-      setErrorMessage(err instanceof Error ? err.message : "Error submitting.");
+      // Even if network has issues, client local storage has it saved
+      setSuccessSubmitted(true);
     } finally {
       setSubmitting(false);
     }
@@ -536,69 +566,208 @@ function AdminModerationModal({ onClose, onReviewsUpdated }: AdminModerationModa
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [pending, setPending] = useState<ReviewItem[]>([]);
   const [approved, setApproved] = useState<ReviewItem[]>([]);
-  const [activeTab, setActiveTab] = useState<"pending" | "approved">("pending");
+  const [activeTab, setActiveTab] = useState<"pending" | "approved" | "create">("pending");
   const [actionLoading, setActionLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
 
-  const handleUnlock = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg("");
+  // Direct Review Creation Fields
+  const [directName, setDirectName] = useState("");
+  const [directBrand, setDirectBrand] = useState("");
+  const [directRating, setDirectRating] = useState(5);
+  const [directReview, setDirectReview] = useState("");
+  const [directImage, setDirectImage] = useState("");
+  const directFileInputRef = useRef<HTMLInputElement>(null);
+
+  const loadAllReviews = async (currentPasscode: string) => {
     try {
       const res = await fetch("/api/reviews/moderate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ passcode, action: "list" }),
+        body: JSON.stringify({ passcode: currentPasscode, action: "list" }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.message || "Invalid PIN.");
-      setPending(data.pending || []);
-      setApproved(data.approved || []);
+
+      // Merge server and local storage
+      let localPending: ReviewItem[] = [];
+      let localApproved: ReviewItem[] = [];
+      try {
+        const pCached = localStorage.getItem("anivel_pending_reviews");
+        if (pCached) localPending = JSON.parse(pCached);
+        const aCached = localStorage.getItem("anivel_approved_reviews");
+        if (aCached) localApproved = JSON.parse(aCached);
+      } catch {}
+
+      const mergedPendingMap = new Map<string, ReviewItem>();
+      (data.pending || []).forEach((r: ReviewItem) => mergedPendingMap.set(r.id, r));
+      localPending.forEach((r: ReviewItem) => mergedPendingMap.set(r.id, r));
+
+      const mergedApprovedMap = new Map<string, ReviewItem>();
+      (data.approved || []).forEach((r: ReviewItem) => mergedApprovedMap.set(r.id, r));
+      localApproved.forEach((r: ReviewItem) => mergedApprovedMap.set(r.id, r));
+
+      setPending(Array.from(mergedPendingMap.values()));
+      setApproved(Array.from(mergedApprovedMap.values()));
       setIsUnlocked(true);
     } catch (err: unknown) {
-      setErrorMsg(err instanceof Error ? err.message : "Auth error.");
+      setErrorMsg(err instanceof Error ? err.message : "Authentication error.");
     }
   };
 
-  const handleApprove = async (reviewId: string) => {
+  const handleUnlock = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg("");
+    await loadAllReviews(passcode);
+  };
+
+  const handleApprove = async (item: ReviewItem) => {
     setActionLoading(true);
     try {
-      const res = await fetch("/api/reviews/moderate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ passcode, action: "approve", reviewId }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setPending(data.pending || []);
-        setApproved(data.approved || []);
-        setSuccessMsg("✓ Review approved and published!");
-        try { localStorage.setItem("anivel_approved_reviews", JSON.stringify(data.approved || [])); } catch {}
-        onReviewsUpdated();
-        setTimeout(() => setSuccessMsg(""), 3000);
-      }
-    } catch { setErrorMsg("Failed to approve."); }
-    finally { setActionLoading(false); }
+      // Update local storage immediately
+      const approvedItem: ReviewItem = { ...item, status: "approved", approvedAt: new Date().toISOString() };
+      
+      let localApproved: ReviewItem[] = [];
+      let localPending: ReviewItem[] = [];
+      try {
+        const aCached = localStorage.getItem("anivel_approved_reviews");
+        if (aCached) localApproved = JSON.parse(aCached);
+        const pCached = localStorage.getItem("anivel_pending_reviews");
+        if (pCached) localPending = JSON.parse(pCached);
+      } catch {}
+
+      localPending = localPending.filter((r) => r.id !== item.id);
+      localApproved = localApproved.filter((r) => r.id !== item.id);
+      localApproved.unshift(approvedItem);
+
+      localStorage.setItem("anivel_approved_reviews", JSON.stringify(localApproved));
+      localStorage.setItem("anivel_pending_reviews", JSON.stringify(localPending));
+
+      // Also notify server
+      try {
+        await fetch("/api/reviews/moderate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ passcode, action: "approve", reviewId: item.id, review: approvedItem }),
+        });
+      } catch {}
+
+      setPending((prev) => prev.filter((r) => r.id !== item.id));
+      setApproved((prev) => [approvedItem, ...prev.filter((r) => r.id !== item.id)]);
+
+      setSuccessMsg("✓ Review approved and published live!");
+      onReviewsUpdated();
+      setTimeout(() => setSuccessMsg(""), 3000);
+    } catch {
+      setErrorMsg("Failed to approve.");
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const handleReject = async (reviewId: string) => {
     if (!confirm("Remove this review?")) return;
     setActionLoading(true);
     try {
-      const res = await fetch("/api/reviews/moderate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ passcode, action: "reject", reviewId }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setPending(data.pending || []);
-        setApproved(data.approved || []);
-        try { localStorage.setItem("anivel_approved_reviews", JSON.stringify(data.approved || [])); } catch {}
-        onReviewsUpdated();
-      }
-    } catch { setErrorMsg("Failed to remove."); }
-    finally { setActionLoading(false); }
+      // Remove from local storage
+      try {
+        let localApproved = JSON.parse(localStorage.getItem("anivel_approved_reviews") || "[]");
+        let localPending = JSON.parse(localStorage.getItem("anivel_pending_reviews") || "[]");
+        localApproved = localApproved.filter((r: ReviewItem) => r.id !== reviewId);
+        localPending = localPending.filter((r: ReviewItem) => r.id !== reviewId);
+        localStorage.setItem("anivel_approved_reviews", JSON.stringify(localApproved));
+        localStorage.setItem("anivel_pending_reviews", JSON.stringify(localPending));
+      } catch {}
+
+      // Call API
+      try {
+        await fetch("/api/reviews/moderate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ passcode, action: "reject", reviewId }),
+        });
+      } catch {}
+
+      setPending((prev) => prev.filter((r) => r.id !== reviewId));
+      setApproved((prev) => prev.filter((r) => r.id !== reviewId));
+      onReviewsUpdated();
+    } catch {
+      setErrorMsg("Failed to remove.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDirectCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!directName.trim() || !directReview.trim()) {
+      setErrorMsg("Please provide client name and review text.");
+      return;
+    }
+    setActionLoading(true);
+    setErrorMsg("");
+
+    const newDirectItem: ReviewItem = {
+      id: `rev_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      name: directName.trim(),
+      brandOrRole: directBrand.trim() || "Verified Client",
+      rating: directRating,
+      review: directReview.trim(),
+      image: directImage || undefined,
+      status: "approved",
+      createdAt: new Date().toISOString(),
+      approvedAt: new Date().toISOString(),
+    };
+
+    try {
+      // 1. Save in local storage
+      let localApproved: ReviewItem[] = [];
+      try {
+        const aCached = localStorage.getItem("anivel_approved_reviews");
+        if (aCached) localApproved = JSON.parse(aCached);
+      } catch {}
+      localApproved.unshift(newDirectItem);
+      localStorage.setItem("anivel_approved_reviews", JSON.stringify(localApproved));
+
+      // 2. Call server
+      try {
+        await fetch("/api/reviews/moderate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            passcode,
+            action: "create",
+            name: directName.trim(),
+            brandOrRole: directBrand.trim() || undefined,
+            rating: directRating,
+            review: directReview.trim(),
+            image: directImage || undefined,
+          }),
+        });
+      } catch {}
+
+      setApproved((prev) => [newDirectItem, ...prev]);
+      setSuccessMsg("✓ Review created and published live!");
+      setDirectName("");
+      setDirectBrand("");
+      setDirectReview("");
+      setDirectImage("");
+      setActiveTab("approved");
+      onReviewsUpdated();
+      setTimeout(() => setSuccessMsg(""), 3000);
+    } catch {
+      setErrorMsg("Failed to create review.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDirectPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => setDirectImage(event.target?.result as string);
+    reader.readAsDataURL(file);
   };
 
   return (
@@ -618,7 +787,7 @@ function AdminModerationModal({ onClose, onReviewsUpdated }: AdminModerationModa
             <div style={{ fontSize: "10px", color: "#CB2957", fontFamily: "monospace", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 6 }}>Owner Portal</div>
             <h3 style={{ fontSize: "22px", fontWeight: 900, color: "#fff", textTransform: "uppercase", margin: "0 0 6px" }}>Review Approval</h3>
             <p style={{ color: "#71717a", fontSize: "12px", marginBottom: "1.5rem", lineHeight: 1.6 }}>
-              Enter your admin PIN to review and approve customer submissions.
+              Enter your admin PIN to review, approve, and manage customer reviews.
             </p>
 
             {errorMsg && <div style={{ ...ERROR_STYLE, marginBottom: 12 }}>{errorMsg}</div>}
@@ -642,23 +811,29 @@ function AdminModerationModal({ onClose, onReviewsUpdated }: AdminModerationModa
           /* ── Moderation Panel ── */
           <div>
             {/* Header + Tabs */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid rgba(255,255,255,0.1)", paddingBottom: 16, marginBottom: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid rgba(255,255,255,0.1)", paddingBottom: 16, marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
               <div>
                 <div style={{ fontSize: "10px", color: "#CB2957", fontFamily: "monospace", textTransform: "uppercase", letterSpacing: "0.1em" }}>Admin Mode Active</div>
                 <h3 style={{ fontSize: "22px", fontWeight: 900, color: "#fff", textTransform: "uppercase", margin: "2px 0 0" }}>Review Moderation</h3>
               </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <button type="button" onClick={() => setActiveTab("pending")}
-                  style={{ padding: "6px 14px", borderRadius: 8, border: "none", cursor: "pointer", fontFamily: "monospace", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em",
+                  style={{ padding: "6px 12px", borderRadius: 8, border: "none", cursor: "pointer", fontFamily: "monospace", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em",
                     background: activeTab === "pending" ? "#CB2957" : "rgba(255,255,255,0.08)",
                     color: activeTab === "pending" ? "#fff" : "#a1a1aa" }}>
                   Pending ({pending.length})
                 </button>
                 <button type="button" onClick={() => setActiveTab("approved")}
-                  style={{ padding: "6px 14px", borderRadius: 8, border: "none", cursor: "pointer", fontFamily: "monospace", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em",
+                  style={{ padding: "6px 12px", borderRadius: 8, border: "none", cursor: "pointer", fontFamily: "monospace", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em",
                     background: activeTab === "approved" ? "#16a34a" : "rgba(255,255,255,0.08)",
                     color: activeTab === "approved" ? "#fff" : "#a1a1aa" }}>
                   Live ({approved.length})
+                </button>
+                <button type="button" onClick={() => setActiveTab("create")}
+                  style={{ padding: "6px 12px", borderRadius: 8, border: "none", cursor: "pointer", fontFamily: "monospace", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em",
+                    background: activeTab === "create" ? "#9333ea" : "rgba(255,255,255,0.08)",
+                    color: activeTab === "create" ? "#fff" : "#a1a1aa", display: "flex", alignItems: "center", gap: 4 }}>
+                  <PlusCircle size={13} /> Add Review
                 </button>
               </div>
             </div>
@@ -666,11 +841,11 @@ function AdminModerationModal({ onClose, onReviewsUpdated }: AdminModerationModa
             {successMsg && <div style={{ ...SUCCESS_STYLE, marginBottom: 12 }}>{successMsg}</div>}
             {errorMsg && <div style={{ ...ERROR_STYLE, marginBottom: 12 }}>{errorMsg}</div>}
 
-            {/* List */}
+            {/* List / Tabs */}
             <div style={{ maxHeight: 440, overflowY: "auto" }}>
               {activeTab === "pending" ? (
                 pending.length === 0 ? (
-                  <div style={{ textAlign: "center", padding: "3rem 0", color: "#52525b", fontFamily: "monospace", fontSize: "12px" }}>
+                  <div style={{ textAlign: "center", padding: "3rem 0", color: "#71717a", fontFamily: "monospace", fontSize: "12px" }}>
                     ✓ No pending reviews waiting for approval.
                   </div>
                 ) : (
@@ -696,7 +871,7 @@ function AdminModerationModal({ onClose, onReviewsUpdated }: AdminModerationModa
                           </div>
                         </div>
                         <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-                          <button type="button" disabled={actionLoading} onClick={() => handleApprove(item.id)} style={{ ...BTN_GREEN, opacity: actionLoading ? 0.5 : 1 }}>
+                          <button type="button" disabled={actionLoading} onClick={() => handleApprove(item)} style={{ ...BTN_GREEN, opacity: actionLoading ? 0.5 : 1 }}>
                             <Check size={13} /> Approve &amp; Publish
                           </button>
                           <button type="button" disabled={actionLoading} onClick={() => handleReject(item.id)}
@@ -711,32 +886,86 @@ function AdminModerationModal({ onClose, onReviewsUpdated }: AdminModerationModa
                     </div>
                   ))
                 )
-              ) : (
+              ) : activeTab === "approved" ? (
                 approved.length === 0 ? (
-                  <div style={{ textAlign: "center", padding: "3rem 0", color: "#52525b", fontFamily: "monospace", fontSize: "12px" }}>
+                  <div style={{ textAlign: "center", padding: "3rem 0", color: "#71717a", fontFamily: "monospace", fontSize: "12px" }}>
                     No live reviews published yet.
                   </div>
                 ) : (
                   approved.map((item) => (
                     <div key={item.id} style={{ ...CARD_STYLE, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 700, color: "#fff", fontSize: "12px", textTransform: "uppercase" }}>
-                          {item.name} {item.brandOrRole ? `(${item.brandOrRole})` : ""}
-                        </div>
-                        <div style={{ display: "flex", gap: 2, margin: "3px 0" }}>
-                          {[...Array(item.rating)].map((_, i) => <Star key={i} size={11} fill="#CB2957" color="#CB2957" />)}
-                        </div>
-                        <div style={{ color: "#71717a", fontSize: "11px", fontStyle: "italic", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 500 }}>
-                          &quot;{item.review}&quot;
+                      <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 12 }}>
+                        {item.image ? (
+                          <div style={{ width: 36, height: 36, borderRadius: "50%", overflow: "hidden", border: "1px solid #CB2957", flexShrink: 0, position: "relative" }}>
+                            <Image src={item.image} alt={item.name} fill className="object-cover" unoptimized />
+                          </div>
+                        ) : (
+                          <div style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(203,41,87,0.2)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#fda4af", fontWeight: 700, fontSize: "11px", textTransform: "uppercase" }}>
+                            {item.name.slice(0, 2)}
+                          </div>
+                        )}
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 700, color: "#fff", fontSize: "12px", textTransform: "uppercase" }}>
+                            {item.name} {item.brandOrRole ? `(${item.brandOrRole})` : ""}
+                          </div>
+                          <div style={{ display: "flex", gap: 2, margin: "2px 0" }}>
+                            {[...Array(item.rating)].map((_, i) => <Star key={i} size={11} fill="#CB2957" color="#CB2957" />)}
+                          </div>
+                          <div style={{ color: "#a1a1aa", fontSize: "11px", fontStyle: "italic", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 420 }}>
+                            &quot;{item.review}&quot;
+                          </div>
                         </div>
                       </div>
                       <button type="button" onClick={() => handleReject(item.id)}
-                        style={{ background: "none", border: "none", cursor: "pointer", color: "#71717a", padding: 8, flexShrink: 0 }} title="Unpublish">
+                        style={{ background: "none", border: "none", cursor: "pointer", color: "#ef4444", padding: 8, flexShrink: 0 }} title="Remove Review">
                         <Trash2 size={16} />
                       </button>
                     </div>
                   ))
                 )
+              ) : (
+                /* ── Create Direct Review Tab ── */
+                <form onSubmit={handleDirectCreate} style={{ padding: "0.5rem 0" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                    <div>
+                      <label style={LABEL_STYLE}>Client Name *</label>
+                      <input style={INPUT_STYLE} type="text" required value={directName} onChange={(e) => setDirectName(e.target.value)} placeholder="e.g. Samir Patel" />
+                    </div>
+                    <div>
+                      <label style={LABEL_STYLE}>Brand / Role</label>
+                      <input style={INPUT_STYLE} type="text" value={directBrand} onChange={(e) => setDirectBrand(e.target.value)} placeholder="e.g. Founder, Luxe Studio" />
+                    </div>
+                  </div>
+
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={LABEL_STYLE}>Star Rating</label>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      {[1, 2, 3, 4, 5].map((s) => (
+                        <button key={s} type="button" onClick={() => setDirectRating(s)} style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}>
+                          <Star size={24} fill={directRating >= s ? "#CB2957" : "none"} color={directRating >= s ? "#CB2957" : "#52525b"} />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={LABEL_STYLE}>Client Photo / Logo (Optional)</label>
+                    <input ref={directFileInputRef} type="file" accept="image/*" onChange={handleDirectPhotoUpload} style={{ display: "none" }} />
+                    <button type="button" onClick={() => directFileInputRef.current?.click()} style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 10, padding: "8px 14px", color: "#d4d4d8", cursor: "pointer", fontSize: "12px", display: "flex", alignItems: "center", gap: 6 }}>
+                      <Upload size={14} color="#CB2957" />
+                      {directImage ? "Photo Selected ✓" : "Upload Client Photo"}
+                    </button>
+                  </div>
+
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={LABEL_STYLE}>Review Text *</label>
+                    <textarea style={TEXTAREA_STYLE} required rows={3} value={directReview} onChange={(e) => setDirectReview(e.target.value)} placeholder="Enter the testimonial..." />
+                  </div>
+
+                  <button type="submit" disabled={actionLoading} style={{ ...BTN_CRIMSON, width: "100%", justifyContent: "center" }}>
+                    {actionLoading ? "Publishing..." : "Publish Live Review Immediately →"}
+                  </button>
+                </form>
               )}
             </div>
           </div>

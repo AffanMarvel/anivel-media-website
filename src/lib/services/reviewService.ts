@@ -2,70 +2,86 @@ import fs from "fs";
 import path from "path";
 import { ReviewItem, ReviewSubmissionPayload } from "@/lib/types/review";
 
-const DATA_DIR = path.join(process.cwd(), "src", "data");
-const APPROVED_REVIEWS_FILE = path.join(DATA_DIR, "reviews.json");
-const PENDING_REVIEWS_FILE = path.join(DATA_DIR, "pending_reviews.json");
+const DATA_DIR = path.join(process.cwd(), "data");
+const APPROVED_FILE = path.join(DATA_DIR, "reviews.json");
+const PENDING_FILE = path.join(DATA_DIR, "pending_reviews.json");
 
-// In-memory runtime fallback cache for read-only serverless platforms (e.g. Vercel)
-let inMemoryApproved: ReviewItem[] = [];
-let inMemoryPending: ReviewItem[] = [];
-let isMemoryInitialized = false;
+// In-memory fallback stores (useful if serverless filesystem is read-only)
+let memoryPending: ReviewItem[] = [];
+let memoryApproved: ReviewItem[] = [];
+let isInitialized = false;
 
-function initializeMemoryStore() {
-  if (isMemoryInitialized) return;
+function ensureDir() {
   try {
-    if (fs.existsSync(APPROVED_REVIEWS_FILE)) {
-      const data = fs.readFileSync(APPROVED_REVIEWS_FILE, "utf-8");
-      inMemoryApproved = JSON.parse(data || "[]");
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
     }
-    if (fs.existsSync(PENDING_REVIEWS_FILE)) {
-      const data = fs.readFileSync(PENDING_REVIEWS_FILE, "utf-8");
-      inMemoryPending = JSON.parse(data || "[]");
+  } catch {}
+}
+
+function initMemory() {
+  if (isInitialized) return;
+  try {
+    ensureDir();
+    if (fs.existsSync(APPROVED_FILE)) {
+      const raw = fs.readFileSync(APPROVED_FILE, "utf-8").trim();
+      if (raw) memoryApproved = JSON.parse(raw);
+    }
+    if (fs.existsSync(PENDING_FILE)) {
+      const raw = fs.readFileSync(PENDING_FILE, "utf-8").trim();
+      if (raw) memoryPending = JSON.parse(raw);
     }
   } catch (err) {
     console.error("[ReviewService] Memory init error:", err);
   }
-  isMemoryInitialized = true;
+  isInitialized = true;
+}
+
+function readJSON(filePath: string, fallbackMemory: ReviewItem[]): ReviewItem[] {
+  initMemory();
+  try {
+    ensureDir();
+    if (fs.existsSync(filePath)) {
+      const raw = fs.readFileSync(filePath, "utf-8").trim();
+      if (raw) return JSON.parse(raw);
+    }
+  } catch (err) {
+    console.warn("[ReviewService] Read error, using memory fallback:", err);
+  }
+  return fallbackMemory;
+}
+
+function writeJSON(filePath: string, data: ReviewItem[], isApproved: boolean): void {
+  initMemory();
+  if (isApproved) {
+    memoryApproved = [...data];
+  } else {
+    memoryPending = [...data];
+  }
+  try {
+    ensureDir();
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
+  } catch (err) {
+    console.warn("[ReviewService] Write skipped (expected in read-only serverless):", err);
+  }
 }
 
 export class ReviewService {
-  /**
-   * Get all approved reviews that should appear on the public website.
-   */
+  /** All reviews currently approved and shown on website */
   static getApprovedReviews(): ReviewItem[] {
-    initializeMemoryStore();
-    try {
-      if (fs.existsSync(APPROVED_REVIEWS_FILE)) {
-        const raw = fs.readFileSync(APPROVED_REVIEWS_FILE, "utf-8");
-        return JSON.parse(raw || "[]");
-      }
-    } catch {
-      // Fallback to in-memory store
-    }
-    return inMemoryApproved.filter((r) => r.status === "approved");
+    return readJSON(APPROVED_FILE, memoryApproved);
   }
 
-  /**
-   * Get all pending reviews for admin approval.
-   */
+  /** All reviews waiting for owner approval */
   static getPendingReviews(): ReviewItem[] {
-    initializeMemoryStore();
-    try {
-      if (fs.existsSync(PENDING_REVIEWS_FILE)) {
-        const raw = fs.readFileSync(PENDING_REVIEWS_FILE, "utf-8");
-        return JSON.parse(raw || "[]");
-      }
-    } catch {
-      // Fallback
-    }
-    return inMemoryPending.filter((r) => r.status === "pending");
+    return readJSON(PENDING_FILE, memoryPending);
   }
 
-  /**
-   * Submit a new client review (starts in 'pending' status).
-   */
-  static async submitReview(payload: ReviewSubmissionPayload): Promise<{ success: boolean; review: ReviewItem }> {
-    initializeMemoryStore();
+  /** Customer submits a new review → goes into pending queue */
+  static async submitReview(
+    payload: ReviewSubmissionPayload
+  ): Promise<{ success: boolean; review: ReviewItem }> {
+    initMemory();
 
     const newReview: ReviewItem = {
       id: `rev_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
@@ -78,107 +94,115 @@ export class ReviewService {
       createdAt: new Date().toISOString(),
     };
 
-    // 1. Add to pending list
-    inMemoryPending.unshift(newReview);
-    try {
-      if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-      }
-      fs.writeFileSync(PENDING_REVIEWS_FILE, JSON.stringify(inMemoryPending, null, 2), "utf-8");
-    } catch (err) {
-      console.warn("[ReviewService] File write skipped (expected on read-only serverless environment):", err);
-    }
+    const existing = readJSON(PENDING_FILE, memoryPending);
+    // Avoid duplicates
+    const filtered = existing.filter((r) => r.id !== newReview.id);
+    filtered.unshift(newReview);
+    writeJSON(PENDING_FILE, filtered, false);
 
-    // 2. Dispatch real-time alert to Google Apps Script Webhook so Affan gets alerted immediately
-    const GOOGLE_SHEET_FALLBACK_URL =
+    console.log("[ReviewService] New review saved to pending:", newReview.id, "-", newReview.name);
+
+    // Alert via Google Sheet webhook so owner sees it immediately
+    const WEBHOOK_URL =
+      process.env.GOOGLE_SHEET_WEBHOOK_URL ||
       "https://script.google.com/macros/s/AKfycbxhLaJ2i9PBiGzOMshLhIom__o8nlKQUQx29iPERM3fUxeHKpcnkflLNuNw7N61vF4Svg/exec";
-    const webhookUrl = process.env.GOOGLE_SHEET_WEBHOOK_URL || GOOGLE_SHEET_FALLBACK_URL;
 
-    if (webhookUrl) {
-      try {
-        await fetch(webhookUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            fullName: newReview.name,
-            brandName: `${newReview.brandOrRole} [★ ${newReview.rating}/5 Review]`,
-            email: "review@anivelmedia.com",
-            phone: "Review Submission",
-            selectedPlan: `CLIENT REVIEW (${newReview.rating} STARS)`,
-            projectNotes: `REVIEW TEXT:\n"${newReview.review}"\n\nSTATUS: PENDING OWNER APPROVAL\nID: ${newReview.id}`,
-            termsAccepted: "YES",
-            status: "REVIEW_SUBMITTED",
-          }),
-          redirect: "follow",
-        });
-      } catch (webhookErr) {
-        console.error("[ReviewService] Failed to notify Google Sheet webhook:", webhookErr);
-      }
+    try {
+      await fetch(WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fullName: newReview.name,
+          brandName: `${newReview.brandOrRole} [★ ${newReview.rating}/5 REVIEW]`,
+          email: "review@anivelmedia.com",
+          phone: "Review Submission",
+          selectedPlan: `CLIENT REVIEW — ${newReview.rating} STARS`,
+          projectNotes: `"${newReview.review}"\n\nSTATUS: PENDING APPROVAL\nID: ${newReview.id}`,
+          termsAccepted: "YES",
+          status: "REVIEW_SUBMITTED",
+        }),
+        redirect: "follow",
+      });
+    } catch (err) {
+      console.error("[ReviewService] Webhook alert failed (non-critical):", err);
     }
 
     return { success: true, review: newReview };
   }
 
-  /**
-   * Approve a pending review so it is published to the website.
-   */
-  static approveReview(reviewId: string): { success: boolean; review?: ReviewItem } {
-    initializeMemoryStore();
+  /** Directly create and publish a review from Admin panel */
+  static createApprovedReview(payload: ReviewSubmissionPayload): { success: boolean; review: ReviewItem } {
+    initMemory();
 
-    // Check in pending
-    const index = inMemoryPending.findIndex((r) => r.id === reviewId);
-    let targetReview: ReviewItem | undefined;
+    const newReview: ReviewItem = {
+      id: `rev_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      name: payload.name.trim(),
+      brandOrRole: payload.brandOrRole?.trim() || "Verified Client",
+      rating: Math.max(1, Math.min(5, Math.round(payload.rating || 5))),
+      review: payload.review.trim(),
+      image: payload.image || undefined,
+      status: "approved",
+      createdAt: new Date().toISOString(),
+      approvedAt: new Date().toISOString(),
+    };
 
-    if (index !== -1) {
-      targetReview = { ...inMemoryPending[index], status: "approved", approvedAt: new Date().toISOString() };
-      inMemoryPending.splice(index, 1);
-    } else {
-      // Check in approved
-      targetReview = inMemoryApproved.find((r) => r.id === reviewId);
-      if (targetReview) {
-        targetReview.status = "approved";
-      }
+    const approved = readJSON(APPROVED_FILE, memoryApproved);
+    approved.unshift(newReview);
+    writeJSON(APPROVED_FILE, approved, true);
+
+    return { success: true, review: newReview };
+  }
+
+  /** Owner approves a review — moves it from pending → approved */
+  static approveReview(reviewId: string, fallbackReview?: ReviewItem): { success: boolean; review?: ReviewItem } {
+    initMemory();
+
+    const pending = readJSON(PENDING_FILE, memoryPending);
+    const approved = readJSON(APPROVED_FILE, memoryApproved);
+
+    let target: ReviewItem | undefined;
+    const idx = pending.findIndex((r) => r.id === reviewId);
+
+    if (idx !== -1) {
+      target = {
+        ...pending[idx],
+        status: "approved",
+        approvedAt: new Date().toISOString(),
+      };
+      pending.splice(idx, 1);
+      writeJSON(PENDING_FILE, pending, false);
+    } else if (fallbackReview) {
+      target = {
+        ...fallbackReview,
+        status: "approved",
+        approvedAt: new Date().toISOString(),
+      };
     }
 
-    if (!targetReview) {
+    if (!target) {
+      console.warn("[ReviewService] Review not found to approve:", reviewId);
       return { success: false };
     }
 
-    // Add or update in approved list
-    const existingApprovedIdx = inMemoryApproved.findIndex((r) => r.id === reviewId);
-    if (existingApprovedIdx !== -1) {
-      inMemoryApproved[existingApprovedIdx] = targetReview;
-    } else {
-      inMemoryApproved.unshift(targetReview);
-    }
+    const filteredApproved = approved.filter((r) => r.id !== target!.id);
+    filteredApproved.unshift(target);
+    writeJSON(APPROVED_FILE, filteredApproved, true);
 
-    // Persist to filesystem if available
-    try {
-      fs.writeFileSync(APPROVED_REVIEWS_FILE, JSON.stringify(inMemoryApproved, null, 2), "utf-8");
-      fs.writeFileSync(PENDING_REVIEWS_FILE, JSON.stringify(inMemoryPending, null, 2), "utf-8");
-    } catch (err) {
-      console.warn("[ReviewService] File write skipped in serverless environment:", err);
-    }
-
-    return { success: true, review: targetReview };
+    console.log("[ReviewService] Review approved:", reviewId);
+    return { success: true, review: target };
   }
 
-  /**
-   * Reject or delete a review.
-   */
+  /** Owner deletes or rejects a review from either list */
   static rejectReview(reviewId: string): { success: boolean } {
-    initializeMemoryStore();
+    initMemory();
 
-    inMemoryPending = inMemoryPending.filter((r) => r.id !== reviewId);
-    inMemoryApproved = inMemoryApproved.filter((r) => r.id !== reviewId);
+    const pending = readJSON(PENDING_FILE, memoryPending);
+    const approved = readJSON(APPROVED_FILE, memoryApproved);
 
-    try {
-      fs.writeFileSync(APPROVED_REVIEWS_FILE, JSON.stringify(inMemoryApproved, null, 2), "utf-8");
-      fs.writeFileSync(PENDING_REVIEWS_FILE, JSON.stringify(inMemoryPending, null, 2), "utf-8");
-    } catch (err) {
-      console.warn("[ReviewService] File write skipped in serverless environment:", err);
-    }
+    writeJSON(PENDING_FILE, pending.filter((r) => r.id !== reviewId), false);
+    writeJSON(APPROVED_FILE, approved.filter((r) => r.id !== reviewId), true);
 
+    console.log("[ReviewService] Review deleted:", reviewId);
     return { success: true };
   }
 }
