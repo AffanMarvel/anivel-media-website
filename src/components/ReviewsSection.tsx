@@ -1,12 +1,11 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import Image from "next/image";
-import { motion, AnimatePresence } from "framer-motion";
 import {
   Star,
   MessageSquarePlus,
-  ShieldCheck,
   CheckCircle2,
   Lock,
   Upload,
@@ -14,8 +13,6 @@ import {
   AlertCircle,
   Clock,
   Sparkles,
-  Quote,
-  Eye,
   Check,
   Trash2,
   User,
@@ -29,26 +26,20 @@ export function ReviewsSection() {
   const [isWriteModalOpen, setIsWriteModalOpen] = useState(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
 
-  // Fetch reviews on mount
   const fetchReviews = async () => {
     try {
       setLoading(true);
       const res = await fetch("/api/reviews");
       const data = await res.json();
       if (data.success && Array.isArray(data.reviews)) {
-        // Also check if there are client-side approved reviews in localStorage (useful for instant preview)
         let localApproved: ReviewItem[] = [];
         try {
           const cached = localStorage.getItem("anivel_approved_reviews");
           if (cached) localApproved = JSON.parse(cached);
         } catch {}
-
-        // Merge unique by ID
         const combined = [...data.reviews];
         localApproved.forEach((lr) => {
-          if (!combined.some((c) => c.id === lr.id)) {
-            combined.unshift(lr);
-          }
+          if (!combined.some((c) => c.id === lr.id)) combined.unshift(lr);
         });
         setReviews(combined);
       }
@@ -70,34 +61,34 @@ export function ReviewsSection() {
       : "0.0";
 
   return (
-    <section id="reviews" className="relative py-24 sm:py-32 bg-black text-[#EEEEEE] overflow-hidden border-t border-white/5">
-      {/* Background radial glow */}
+    <section
+      id="reviews"
+      className="relative py-24 sm:py-32 bg-black text-[#EEEEEE] overflow-hidden border-t border-white/5"
+    >
       <div
         aria-hidden="true"
         className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-[600px] w-[900px] rounded-full bg-crimson/[0.04] blur-[180px] -z-10"
       />
 
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        {/* Section Header */}
+        {/* Header */}
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-12 border-b border-white/10">
           <div className="space-y-3">
             <div className="inline-flex items-center gap-2 rounded-full border border-crimson/30 bg-crimson/10 px-3.5 py-1 font-mono text-[11px] uppercase tracking-wider text-rose-300">
               <Sparkles className="h-3 w-3 text-crimson" />
               <span>Verified Client Feedback</span>
             </div>
-
             <h2 className="font-display text-3xl sm:text-5xl lg:text-6xl font-black uppercase text-white tracking-tight leading-[0.95]">
               CLIENT <span className="text-crimson">REVIEWS.</span>
             </h2>
-
             <p className="text-sm sm:text-base text-zinc-400 font-sans max-w-xl leading-relaxed">
-              Real endorsements and verified feedback from brand owners, founders, and creators who produce with Anivel Media.
+              Real feedback from brand owners, founders, and creators who produce with Anivel Media.
             </p>
           </div>
 
-          {/* Rating Summary Scorecard & Actions */}
           <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-            <div className="flex items-center gap-3.5 rounded-2xl border border-white/10 bg-white/[0.02] p-4 backdrop-blur-sm">
+            {/* Rating pill */}
+            <div className="flex items-center gap-3.5 rounded-2xl border border-white/10 bg-white/[0.02] p-4">
               <div className="text-right">
                 <div className="flex items-center justify-end gap-1 text-crimson">
                   {[...Array(5)].map((_, i) => (
@@ -112,25 +103,22 @@ export function ReviewsSection() {
                   ))}
                 </div>
                 <span className="font-display text-2xl font-black text-white leading-none block pt-1">
-                  {averageRating} <span className="text-xs font-mono text-zinc-400 font-normal">/ 5.0</span>
+                  {averageRating}{" "}
+                  <span className="text-xs font-mono text-zinc-400 font-normal">/ 5.0</span>
                 </span>
-                <span className="font-mono text-[11px] text-zinc-400 block">
-                  {totalReviews} Reviews
-                </span>
+                <span className="font-mono text-[11px] text-zinc-400 block">{totalReviews} Reviews</span>
               </div>
             </div>
 
-            {/* CTAs */}
             <div className="flex items-center gap-2.5">
               <button
                 onClick={() => setIsWriteModalOpen(true)}
-                className="inline-flex items-center gap-2 rounded-xl bg-crimson px-5 py-3.5 font-display text-xs font-bold uppercase tracking-wider text-white shadow-crimson-glow hover:bg-crimson-600 transition-all active:scale-[0.98]"
+                className="inline-flex items-center gap-2 rounded-xl bg-crimson px-5 py-3.5 font-display text-xs font-bold uppercase tracking-wider text-white shadow-crimson-glow hover:opacity-90 transition-all"
               >
                 <MessageSquarePlus className="h-4 w-4" />
                 <span>Write a Review</span>
               </button>
 
-              {/* Owner Moderation Trigger */}
               <button
                 onClick={() => setIsAdminModalOpen(true)}
                 title="Owner Review Approval Portal"
@@ -142,21 +130,17 @@ export function ReviewsSection() {
           </div>
         </div>
 
-        {/* Content Area */}
+        {/* Content */}
         <div className="pt-12">
           {loading ? (
             <div className="py-20 text-center font-mono text-xs text-zinc-500 animate-pulse">
-              Loading verified reviews...
+              Loading reviews...
             </div>
           ) : totalReviews === 0 ? (
-            /* Explicit 0 Reviews State (Requested) */
-            <div className="rounded-[28px] border border-white/10 bg-gradient-to-b from-[#0F0B10] to-[#08080C] p-8 sm:p-14 text-center max-w-2xl mx-auto shadow-2xl relative overflow-hidden space-y-6">
-              <div className="pointer-events-none absolute -top-20 -right-20 h-40 w-40 rounded-full bg-crimson/10 blur-3xl" />
-              
+            <div className="rounded-[28px] border border-white/10 bg-gradient-to-b from-[#0F0B10] to-[#08080C] p-8 sm:p-14 text-center max-w-2xl mx-auto shadow-2xl space-y-6">
               <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-zinc-400">
                 <Star className="h-7 w-7 text-crimson" />
               </div>
-
               <div className="space-y-2">
                 <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 font-mono text-[10px] uppercase tracking-widest text-zinc-400">
                   <Clock className="h-3 w-3 text-crimson" />
@@ -166,42 +150,34 @@ export function ReviewsSection() {
                   BE THE FIRST TO REVIEW <span className="text-crimson">ANIVEL MEDIA.</span>
                 </h3>
                 <p className="text-xs sm:text-sm text-zinc-400 font-sans max-w-md mx-auto leading-relaxed">
-                  Have we produced your brand reels, scripted your concepts, or executed your commercial shoot? Share your feedback to be featured on our official showcase.
+                  Have we produced your brand reels, scripted your concepts, or executed your commercial shoot? Share your feedback.
                 </p>
               </div>
-
-              <div className="pt-2">
-                <button
-                  onClick={() => setIsWriteModalOpen(true)}
-                  className="inline-flex items-center gap-2 rounded-xl bg-crimson px-7 py-3.5 font-display text-xs font-bold uppercase tracking-wider text-white shadow-crimson-glow hover:bg-crimson-600 transition-all"
-                >
-                  <MessageSquarePlus className="h-4 w-4" />
-                  <span>Submit Your Experience &rarr;</span>
-                </button>
-              </div>
-
+              <button
+                onClick={() => setIsWriteModalOpen(true)}
+                className="inline-flex items-center gap-2 rounded-xl bg-crimson px-7 py-3.5 font-display text-xs font-bold uppercase tracking-wider text-white shadow-crimson-glow hover:opacity-90 transition-all"
+              >
+                <MessageSquarePlus className="h-4 w-4" />
+                <span>Submit Your Experience &rarr;</span>
+              </button>
               <p className="font-mono text-[10px] text-zinc-500">
-                Submissions are reviewed and approved by founder Affan Shaikh before going live.
+                Reviews are approved by founder Affan Shaikh before going live.
               </p>
             </div>
           ) : (
-            /* Approved Reviews Grid */
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {reviews.map((item) => (
                 <div
                   key={item.id}
-                  className="rounded-2xl border border-white/10 bg-[#0B0B0F] p-6 flex flex-col justify-between space-y-4 hover:border-crimson/40 transition-all group"
+                  className="rounded-2xl border border-white/10 bg-[#0B0B0F] p-6 flex flex-col justify-between space-y-4 hover:border-crimson/40 transition-all"
                 >
                   <div className="space-y-3">
-                    {/* Top Row: Stars & Badge */}
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1 text-crimson">
+                      <div className="flex items-center gap-1">
                         {[...Array(5)].map((_, i) => (
                           <Star
                             key={i}
-                            className={`h-4 w-4 ${
-                              i < item.rating ? "fill-crimson text-crimson" : "text-zinc-700"
-                            }`}
+                            className={`h-4 w-4 ${i < item.rating ? "fill-crimson text-crimson" : "text-zinc-700"}`}
                           />
                         ))}
                       </div>
@@ -210,24 +186,14 @@ export function ReviewsSection() {
                         <span>Verified</span>
                       </span>
                     </div>
-
-                    {/* Review Text */}
                     <p className="text-xs sm:text-sm text-zinc-300 font-sans leading-relaxed italic">
                       &quot;{item.review}&quot;
                     </p>
                   </div>
-
-                  {/* Author Profile */}
                   <div className="flex items-center gap-3 pt-3 border-t border-white/5">
                     {item.image ? (
                       <div className="relative h-10 w-10 rounded-full overflow-hidden border border-crimson/40 shrink-0">
-                        <Image
-                          src={item.image}
-                          alt={item.name}
-                          fill
-                          className="object-cover"
-                          unoptimized
-                        />
+                        <Image src={item.image} alt={item.name} fill className="object-cover" unoptimized />
                       </div>
                     ) : (
                       <div className="flex h-10 w-10 items-center justify-center rounded-full bg-crimson/20 border border-crimson/40 text-rose-200 font-display font-bold text-xs uppercase shrink-0">
@@ -235,13 +201,9 @@ export function ReviewsSection() {
                       </div>
                     )}
                     <div className="min-w-0">
-                      <h4 className="font-display text-xs font-bold text-white uppercase truncate">
-                        {item.name}
-                      </h4>
+                      <h4 className="font-display text-xs font-bold text-white uppercase truncate">{item.name}</h4>
                       {item.brandOrRole && (
-                        <p className="font-mono text-[10px] text-zinc-400 truncate">
-                          {item.brandOrRole}
-                        </p>
+                        <p className="font-mono text-[10px] text-zinc-400 truncate">{item.brandOrRole}</p>
                       )}
                     </div>
                   </div>
@@ -252,37 +214,159 @@ export function ReviewsSection() {
         </div>
       </div>
 
-      {/* Write a Review Modal */}
-      <AnimatePresence>
-        {isWriteModalOpen && (
+      {/* Modals rendered via Portal so they escape overflow-hidden parent (ScrollExpand) */}
+      {isWriteModalOpen &&
+        typeof document !== "undefined" &&
+        createPortal(
           <WriteReviewModal
             onClose={() => setIsWriteModalOpen(false)}
             onSuccess={() => {
               setIsWriteModalOpen(false);
               fetchReviews();
             }}
-          />
+          />,
+          document.body
         )}
-      </AnimatePresence>
-
-      {/* Admin Moderation Modal */}
-      <AnimatePresence>
-        {isAdminModalOpen && (
+      {isAdminModalOpen &&
+        typeof document !== "undefined" &&
+        createPortal(
           <AdminModerationModal
             onClose={() => setIsAdminModalOpen(false)}
-            onReviewsUpdated={() => {
-              fetchReviews();
-            }}
-          />
+            onReviewsUpdated={fetchReviews}
+          />,
+          document.body
         )}
-      </AnimatePresence>
     </section>
   );
 }
 
-// ==============================================================================
-// 1. WRITE REVIEW MODAL COMPONENT
-// ==============================================================================
+// ─── OVERLAY STYLES (inline so they always work regardless of Tailwind compilation) ─────
+const OVERLAY_STYLE: React.CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  zIndex: 9999,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: "1rem",
+  backgroundColor: "rgba(0,0,0,0.75)",
+  overflowY: "auto",
+};
+
+const MODAL_STYLE: React.CSSProperties = {
+  position: "relative",
+  width: "100%",
+  maxWidth: "560px",
+  borderRadius: "20px",
+  border: "1px solid rgba(255,255,255,0.15)",
+  backgroundColor: "#1c1c1e",
+  padding: "2rem",
+  boxShadow: "0 25px 60px rgba(0,0,0,0.7)",
+  color: "#eeeeee",
+  margin: "2rem auto",
+};
+
+const MODAL_WIDE_STYLE: React.CSSProperties = {
+  ...MODAL_STYLE,
+  maxWidth: "720px",
+};
+
+const INPUT_STYLE: React.CSSProperties = {
+  width: "100%",
+  backgroundColor: "#2c2c2e",
+  border: "1px solid rgba(255,255,255,0.15)",
+  borderRadius: "12px",
+  padding: "10px 14px",
+  color: "#ffffff",
+  fontSize: "13px",
+  outline: "none",
+  boxSizing: "border-box",
+};
+
+const TEXTAREA_STYLE: React.CSSProperties = {
+  ...INPUT_STYLE,
+  resize: "none",
+  minHeight: "100px",
+};
+
+const BTN_CRIMSON: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "8px",
+  backgroundColor: "#CB2957",
+  color: "#ffffff",
+  border: "none",
+  borderRadius: "12px",
+  padding: "12px 24px",
+  fontWeight: 700,
+  fontSize: "12px",
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  cursor: "pointer",
+};
+
+const BTN_GREEN: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "6px",
+  backgroundColor: "#16a34a",
+  color: "#ffffff",
+  border: "none",
+  borderRadius: "10px",
+  padding: "8px 14px",
+  fontWeight: 700,
+  fontSize: "11px",
+  letterSpacing: "0.06em",
+  textTransform: "uppercase",
+  cursor: "pointer",
+};
+
+const BTN_GHOST: React.CSSProperties = {
+  backgroundColor: "transparent",
+  border: "none",
+  color: "#a1a1aa",
+  cursor: "pointer",
+  fontSize: "12px",
+  padding: "8px 12px",
+};
+
+const CARD_STYLE: React.CSSProperties = {
+  backgroundColor: "#2c2c2e",
+  border: "1px solid rgba(255,255,255,0.12)",
+  borderRadius: "14px",
+  padding: "16px",
+  marginBottom: "12px",
+};
+
+const LABEL_STYLE: React.CSSProperties = {
+  display: "block",
+  fontSize: "11px",
+  color: "#d4d4d8",
+  marginBottom: "6px",
+  fontFamily: "monospace",
+  textTransform: "uppercase",
+  letterSpacing: "0.06em",
+};
+
+const ERROR_STYLE: React.CSSProperties = {
+  backgroundColor: "rgba(239,68,68,0.15)",
+  border: "1px solid rgba(239,68,68,0.4)",
+  borderRadius: "10px",
+  padding: "10px 14px",
+  color: "#fca5a5",
+  fontSize: "12px",
+};
+
+const SUCCESS_STYLE: React.CSSProperties = {
+  backgroundColor: "rgba(34,197,94,0.15)",
+  border: "1px solid rgba(34,197,94,0.4)",
+  borderRadius: "10px",
+  padding: "10px 14px",
+  color: "#86efac",
+  fontSize: "12px",
+};
+
+// ─── WRITE REVIEW MODAL ─────────────────────────────────────────────────────────
 interface WriteReviewModalProps {
   onClose: () => void;
   onSuccess: () => void;
@@ -291,314 +375,157 @@ interface WriteReviewModalProps {
 function WriteReviewModal({ onClose, onSuccess }: WriteReviewModalProps) {
   const [name, setName] = useState("");
   const [brandOrRole, setBrandOrRole] = useState("");
-  const [rating, setRating] = useState<number>(5);
-  const [hoverRating, setHoverRating] = useState<number>(0);
+  const [rating, setRating] = useState(5);
+  const [hoverRating, setHoverRating] = useState(0);
   const [review, setReview] = useState("");
-  const [imagePreview, setImagePreview] = useState<string>("");
+  const [imagePreview, setImagePreview] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [successSubmitted, setSuccessSubmitted] = useState(false);
-
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Handle Photo File Upload
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    if (!file.type.startsWith("image/")) {
-      setErrorMessage("Please select a valid image file (PNG, JPG, WEBP).");
-      return;
-    }
-
-    if (file.size > 5 * 1024 * 1024) {
-      setErrorMessage("Image file must be under 5MB.");
-      return;
-    }
-
+    if (!file.type.startsWith("image/")) { setErrorMessage("Please select a valid image."); return; }
+    if (file.size > 5 * 1024 * 1024) { setErrorMessage("Image must be under 5MB."); return; }
     const reader = new FileReader();
-    reader.onload = (event) => {
-      setImagePreview(event.target?.result as string);
-      setErrorMessage("");
-    };
+    reader.onload = (event) => { setImagePreview(event.target?.result as string); setErrorMessage(""); };
     reader.readAsDataURL(file);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || name.trim().length < 2) {
-      setErrorMessage("Please enter your name.");
-      return;
-    }
-    if (!review.trim() || review.trim().length < 5) {
-      setErrorMessage("Please write a short description of your experience.");
-      return;
-    }
-
+    if (!name.trim() || name.trim().length < 2) { setErrorMessage("Please enter your name."); return; }
+    if (!review.trim() || review.trim().length < 5) { setErrorMessage("Please write your experience."); return; }
     setSubmitting(true);
     setErrorMessage("");
-
     try {
       const res = await fetch("/api/reviews", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: name.trim(),
-          brandOrRole: brandOrRole.trim() || undefined,
-          rating,
-          review: review.trim(),
-          image: imagePreview || undefined,
-        }),
+        body: JSON.stringify({ name: name.trim(), brandOrRole: brandOrRole.trim() || undefined, rating, review: review.trim(), image: imagePreview || undefined }),
       });
-
       const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.message || "Failed to submit review.");
-      }
-
+      if (!res.ok || !data.success) throw new Error(data.message || "Failed to submit.");
       setSuccessSubmitted(true);
-      try {
-        confetti({
-          particleCount: 60,
-          spread: 60,
-          origin: { y: 0.6 },
-          colors: ["#CB2957", "#FFFFFF"],
-        });
-      } catch {}
+      try { confetti({ particleCount: 60, spread: 60, origin: { y: 0.6 }, colors: ["#CB2957", "#FFFFFF"] }); } catch {}
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Error submitting review.";
-      setErrorMessage(msg);
+      setErrorMessage(err instanceof Error ? err.message : "Error submitting.");
     } finally {
       setSubmitting(false);
     }
   };
 
-  const ratingDescriptions: Record<number, string> = {
-    1: "1 - Unsatisfactory",
-    2: "2 - Needs Improvement",
-    3: "3 - Satisfactory",
-    4: "4 - Very Good",
-    5: "5 - Exceptional / Highly Recommended",
-  };
+  const ratingLabels: Record<number, string> = { 1: "Poor", 2: "Fair", 3: "Good", 4: "Very Good", 5: "Excellent ★" };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md overflow-y-auto">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 10 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 10 }}
-        className="relative w-full max-w-xl rounded-[24px] border border-white/10 bg-[#0A070B] p-6 sm:p-8 shadow-2xl text-left overflow-hidden my-8"
-      >
-        {/* Glow */}
-        <div className="pointer-events-none absolute -top-24 -right-24 h-48 w-48 rounded-full bg-crimson/20 blur-3xl" />
-
-        {/* Close Button */}
-        <button
-          onClick={onClose}
-          className="absolute top-5 right-5 text-zinc-400 hover:text-white transition-colors h-8 w-8 flex items-center justify-center rounded-full bg-white/5 border border-white/10"
-        >
-          <X className="h-4 w-4" />
+    <div style={OVERLAY_STYLE} onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div style={MODAL_STYLE}>
+        {/* Close */}
+        <button onClick={onClose} style={{ position: "absolute", top: 16, right: 16, background: "rgba(255,255,255,0.1)", border: "none", borderRadius: "50%", width: 32, height: 32, cursor: "pointer", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <X size={16} />
         </button>
 
         {successSubmitted ? (
-          <div className="text-center py-8 space-y-5">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-crimson/20 border border-crimson text-crimson">
-              <CheckCircle2 className="h-8 w-8" />
+          <div style={{ textAlign: "center", padding: "2rem 0" }}>
+            <div style={{ width: 64, height: 64, borderRadius: 16, background: "rgba(203,41,87,0.2)", border: "1px solid #CB2957", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1rem" }}>
+              <CheckCircle2 size={32} color="#CB2957" />
             </div>
-            <div className="space-y-2">
-              <span className="font-mono text-xs uppercase text-emerald-400 font-bold tracking-widest">
-                ✓ Review Submitted Successfully
-              </span>
-              <h3 className="font-display text-2xl sm:text-3xl font-black uppercase text-white">
-                THANK YOU, {name.split(" ")[0].toUpperCase()}!
-              </h3>
-              <p className="text-xs sm:text-sm text-zinc-300 font-sans max-w-sm mx-auto leading-relaxed">
-                Your review has been forwarded to Anivel Media. For quality assurance, reviews are approved by founder Affan Shaikh before going live on the website.
-              </p>
-            </div>
-            <div className="pt-2">
-              <button
-                onClick={onSuccess}
-                className="w-full rounded-xl bg-crimson px-6 py-3.5 font-display text-xs font-bold uppercase tracking-wider text-white shadow-crimson-glow hover:bg-crimson-600 transition-all"
-              >
-                Close &amp; Return
-              </button>
-            </div>
+            <div style={{ fontSize: "11px", color: "#4ade80", fontFamily: "monospace", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 8 }}>✓ Review Submitted!</div>
+            <h3 style={{ fontSize: "22px", fontWeight: 900, color: "#fff", textTransform: "uppercase", margin: "0 0 8px" }}>Thank you, {name.split(" ")[0]}!</h3>
+            <p style={{ color: "#a1a1aa", fontSize: "13px", lineHeight: 1.6, marginBottom: "1.5rem" }}>
+              Your review is pending approval by Affan Shaikh. It will go live on the website once approved.
+            </p>
+            <button onClick={onSuccess} style={BTN_CRIMSON}>Close &amp; Return</button>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div className="space-y-1">
-              <span className="font-mono text-[10px] uppercase tracking-wider text-crimson font-bold block">
-                Share Your Experience
-              </span>
-              <h3 className="font-display text-2xl font-black uppercase text-white tracking-tight">
-                WRITE A <span className="text-crimson">REVIEW.</span>
-              </h3>
-              <p className="text-xs text-zinc-400">
-                Tell the community about the quality of content, speed of delivery, or creative execution.
-              </p>
+          <form onSubmit={handleSubmit}>
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: "10px", color: "#CB2957", fontFamily: "monospace", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 4 }}>Share Your Experience</div>
+              <h3 style={{ fontSize: "24px", fontWeight: 900, color: "#fff", textTransform: "uppercase", margin: 0 }}>Write a <span style={{ color: "#CB2957" }}>Review.</span></h3>
+              <p style={{ color: "#71717a", fontSize: "12px", marginTop: 6 }}>Tell others about your experience with Anivel Media.</p>
             </div>
 
-            {errorMessage && (
-              <div className="p-3 rounded-xl border border-rose-500/40 bg-rose-950/20 text-rose-300 text-xs flex items-center gap-2">
-                <AlertCircle className="h-4 w-4 shrink-0" />
-                <span>{errorMessage}</span>
-              </div>
-            )}
+            {errorMessage && <div style={{ ...ERROR_STYLE, marginBottom: 16 }}>{errorMessage}</div>}
 
-            {/* Star Rating Selector */}
-            <div className="space-y-1.5 pt-1">
-              <label className="font-mono text-xs text-zinc-300 block">
-                Your Overall Rating *
-              </label>
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1">
-                  {[1, 2, 3, 4, 5].map((star) => {
-                    const active = (hoverRating || rating) >= star;
-                    return (
-                      <button
-                        key={star}
-                        type="button"
-                        onClick={() => setRating(star)}
-                        onMouseEnter={() => setHoverRating(star)}
-                        onMouseLeave={() => setHoverRating(0)}
-                        className="p-1 text-zinc-600 hover:scale-110 transition-transform"
-                      >
-                        <Star
-                          className={`h-6 w-6 ${
-                            active ? "fill-crimson text-crimson" : "text-zinc-600"
-                          }`}
-                        />
-                      </button>
-                    );
-                  })}
-                </div>
-                <span className="font-mono text-xs text-rose-300 pl-2">
-                  {ratingDescriptions[hoverRating || rating]}
-                </span>
+            {/* Star Rating */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={LABEL_STYLE}>Your Rating *</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <button key={star} type="button"
+                    onClick={() => setRating(star)}
+                    onMouseEnter={() => setHoverRating(star)}
+                    onMouseLeave={() => setHoverRating(0)}
+                    style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}
+                  >
+                    <Star size={28} fill={(hoverRating || rating) >= star ? "#CB2957" : "none"} color={(hoverRating || rating) >= star ? "#CB2957" : "#52525b"} />
+                  </button>
+                ))}
+                <span style={{ color: "#fda4af", fontSize: "12px", marginLeft: 8 }}>{ratingLabels[hoverRating || rating]}</span>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Full Name */}
-              <div className="space-y-1.5">
-                <label className="font-mono text-xs text-zinc-300 block">Your Name *</label>
-                <input
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Rahul Sharma"
-                  className="w-full rounded-xl border border-white/10 bg-black/60 px-3.5 py-2.5 text-xs text-white placeholder-zinc-600 focus:border-crimson outline-none"
-                />
+            {/* Name + Brand */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+              <div>
+                <label style={LABEL_STYLE}>Your Name *</label>
+                <input style={INPUT_STYLE} type="text" required value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Rahul Sharma" />
               </div>
-
-              {/* Brand or Role */}
-              <div className="space-y-1.5">
-                <label className="font-mono text-xs text-zinc-300 block">Brand / Company / Role</label>
-                <input
-                  type="text"
-                  value={brandOrRole}
-                  onChange={(e) => setBrandOrRole(e.target.value)}
-                  placeholder="e.g. Founder, Shish Jewels"
-                  className="w-full rounded-xl border border-white/10 bg-black/60 px-3.5 py-2.5 text-xs text-white placeholder-zinc-600 focus:border-crimson outline-none"
-                />
+              <div>
+                <label style={LABEL_STYLE}>Brand / Role</label>
+                <input style={INPUT_STYLE} type="text" value={brandOrRole} onChange={(e) => setBrandOrRole(e.target.value)} placeholder="e.g. Founder, Shish Jewels" />
               </div>
             </div>
 
-            {/* Photo / Avatar Upload */}
-            <div className="space-y-1.5">
-              <label className="font-mono text-xs text-zinc-300 block">
-                Profile Photo or Brand Logo (Optional)
-              </label>
-              <div className="flex items-center gap-3">
+            {/* Photo Upload */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={LABEL_STYLE}>Profile Photo (Optional)</label>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 {imagePreview ? (
-                  <div className="relative h-14 w-14 rounded-full overflow-hidden border border-crimson/50 shrink-0">
-                    <Image
-                      src={imagePreview}
-                      alt="Preview"
-                      fill
-                      className="object-cover"
-                      unoptimized
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setImagePreview("")}
-                      className="absolute inset-0 bg-black/60 opacity-0 hover:opacity-100 flex items-center justify-center text-white transition-opacity"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
+                  <div style={{ width: 52, height: 52, borderRadius: "50%", overflow: "hidden", border: "2px solid #CB2957", flexShrink: 0, position: "relative" }}>
+                    <Image src={imagePreview} alt="Preview" fill className="object-cover" unoptimized />
                   </div>
                 ) : (
-                  <div className="flex h-14 w-14 items-center justify-center rounded-full bg-white/5 border border-white/10 text-zinc-500 shrink-0">
-                    <User className="h-6 w-6" />
+                  <div style={{ width: 52, height: 52, borderRadius: "50%", background: "rgba(203,41,87,0.15)", border: "1px solid rgba(203,41,87,0.4)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <User size={22} color="#fda4af" />
                   </div>
                 )}
-
-                <div className="flex-1">
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handlePhotoUpload}
-                    className="hidden"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-mono text-zinc-300 hover:text-white hover:border-white/20 transition-all"
-                  >
-                    <Upload className="h-3.5 w-3.5 text-crimson" />
-                    <span>{imagePreview ? "Change Photo" : "Upload Photo (PNG/JPG)"}</span>
+                <div>
+                  <input ref={fileInputRef} type="file" accept="image/*" onChange={handlePhotoUpload} style={{ display: "none" }} />
+                  <button type="button" onClick={() => fileInputRef.current?.click()}
+                    style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 10, padding: "8px 14px", color: "#d4d4d8", cursor: "pointer", fontSize: "12px", display: "flex", alignItems: "center", gap: 6 }}>
+                    <Upload size={14} color="#CB2957" />
+                    {imagePreview ? "Change Photo" : "Upload Photo"}
                   </button>
-                  <p className="font-mono text-[10px] text-zinc-500 pt-1">
-                    Adds trust and verification to your public review. Max 5MB.
-                  </p>
+                  <div style={{ fontSize: "10px", color: "#52525b", marginTop: 4, fontFamily: "monospace" }}>Max 5MB • PNG / JPG</div>
                 </div>
               </div>
             </div>
 
-            {/* Review Description */}
-            <div className="space-y-1.5">
-              <label className="font-mono text-xs text-zinc-300 block">
-                Your Review Description *
-              </label>
-              <textarea
-                required
-                rows={4}
-                value={review}
+            {/* Review Text */}
+            <div style={{ marginBottom: 20 }}>
+              <label style={LABEL_STYLE}>Your Review *</label>
+              <textarea style={TEXTAREA_STYLE} required rows={4} value={review}
                 onChange={(e) => setReview(e.target.value)}
-                placeholder="Share specific details about how Anivel Media helped your brand — the reel views, production quality, speed, or communication..."
-                className="w-full rounded-xl border border-white/10 bg-black/60 p-3.5 text-xs text-white placeholder-zinc-600 focus:border-crimson outline-none resize-none"
-              />
+                placeholder="Share details about content quality, production speed, communication..." />
             </div>
 
-            <div className="pt-2 flex items-center justify-end gap-3">
-              <button
-                type="button"
-                onClick={onClose}
-                className="font-mono text-xs text-zinc-400 hover:text-white px-4 py-2"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={submitting}
-                className="inline-flex items-center gap-2 rounded-xl bg-crimson px-7 py-3 font-display text-xs font-bold uppercase tracking-wider text-white shadow-crimson-glow hover:bg-crimson-600 transition-all disabled:opacity-50"
-              >
-                <span>{submitting ? "Submitting..." : "Submit Review for Approval &rarr;"}</span>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, alignItems: "center" }}>
+              <button type="button" onClick={onClose} style={BTN_GHOST}>Cancel</button>
+              <button type="submit" disabled={submitting} style={{ ...BTN_CRIMSON, opacity: submitting ? 0.6 : 1 }}>
+                {submitting ? "Submitting..." : "Submit for Approval →"}
               </button>
             </div>
           </form>
         )}
-      </motion.div>
+      </div>
     </div>
   );
 }
 
-// ==============================================================================
-// 2. ADMIN MODERATION MODAL (OWNER APPROVAL)
-// ==============================================================================
+// ─── ADMIN MODERATION MODAL ─────────────────────────────────────────────────────
 interface AdminModerationModalProps {
   onClose: () => void;
   onReviewsUpdated: () => void;
@@ -624,21 +551,17 @@ function AdminModerationModal({ onClose, onReviewsUpdated }: AdminModerationModa
         body: JSON.stringify({ passcode, action: "list" }),
       });
       const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.message || "Invalid administrator passcode.");
-      }
+      if (!res.ok || !data.success) throw new Error(data.message || "Invalid PIN.");
       setPending(data.pending || []);
       setApproved(data.approved || []);
       setIsUnlocked(true);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Authentication error.";
-      setErrorMsg(msg);
+      setErrorMsg(err instanceof Error ? err.message : "Auth error.");
     }
   };
 
   const handleApprove = async (reviewId: string) => {
     setActionLoading(true);
-    setErrorMsg("");
     try {
       const res = await fetch("/api/reviews/moderate", {
         method: "POST",
@@ -649,27 +572,18 @@ function AdminModerationModal({ onClose, onReviewsUpdated }: AdminModerationModa
       if (data.success) {
         setPending(data.pending || []);
         setApproved(data.approved || []);
-        setSuccessMsg("Review approved and published to website!");
-
-        // Also cache locally for instant presentation
-        try {
-          localStorage.setItem("anivel_approved_reviews", JSON.stringify(data.approved || []));
-        } catch {}
-
+        setSuccessMsg("✓ Review approved and published!");
+        try { localStorage.setItem("anivel_approved_reviews", JSON.stringify(data.approved || [])); } catch {}
         onReviewsUpdated();
         setTimeout(() => setSuccessMsg(""), 3000);
       }
-    } catch {
-      setErrorMsg("Failed to approve review.");
-    } finally {
-      setActionLoading(false);
-    }
+    } catch { setErrorMsg("Failed to approve."); }
+    finally { setActionLoading(false); }
   };
 
   const handleReject = async (reviewId: string) => {
-    if (!confirm("Are you sure you want to remove this review?")) return;
+    if (!confirm("Remove this review?")) return;
     setActionLoading(true);
-    setErrorMsg("");
     try {
       const res = await fetch("/api/reviews/moderate", {
         method: "POST",
@@ -680,237 +594,154 @@ function AdminModerationModal({ onClose, onReviewsUpdated }: AdminModerationModa
       if (data.success) {
         setPending(data.pending || []);
         setApproved(data.approved || []);
-        try {
-          localStorage.setItem("anivel_approved_reviews", JSON.stringify(data.approved || []));
-        } catch {}
+        try { localStorage.setItem("anivel_approved_reviews", JSON.stringify(data.approved || [])); } catch {}
         onReviewsUpdated();
       }
-    } catch {
-      setErrorMsg("Failed to remove review.");
-    } finally {
-      setActionLoading(false);
-    }
+    } catch { setErrorMsg("Failed to remove."); }
+    finally { setActionLoading(false); }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md overflow-y-auto">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        className="relative w-full max-w-2xl rounded-[24px] border border-white/10 bg-[#0B080D] p-6 sm:p-8 shadow-2xl text-left overflow-hidden my-8"
-      >
-        <button
-          onClick={onClose}
-          className="absolute top-5 right-5 text-zinc-400 hover:text-white transition-colors h-8 w-8 flex items-center justify-center rounded-full bg-white/5 border border-white/10"
-        >
-          <X className="h-4 w-4" />
+    <div style={OVERLAY_STYLE} onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div style={MODAL_WIDE_STYLE}>
+        {/* Close */}
+        <button onClick={onClose} style={{ position: "absolute", top: 16, right: 16, background: "rgba(255,255,255,0.1)", border: "none", borderRadius: "50%", width: 32, height: 32, cursor: "pointer", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <X size={16} />
         </button>
 
         {!isUnlocked ? (
-          <form onSubmit={handleUnlock} className="space-y-5 max-w-md mx-auto py-8 text-center">
-            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-crimson/20 border border-crimson text-crimson">
-              <Lock className="h-6 w-6" />
+          /* ── PIN Screen ── */
+          <form onSubmit={handleUnlock} style={{ maxWidth: 380, margin: "0 auto", textAlign: "center", padding: "2rem 0" }}>
+            <div style={{ width: 56, height: 56, borderRadius: 14, background: "rgba(203,41,87,0.2)", border: "1px solid #CB2957", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1.25rem" }}>
+              <Lock size={24} color="#CB2957" />
             </div>
-
-            <div className="space-y-1">
-              <span className="font-mono text-[10px] uppercase tracking-widest text-crimson font-bold block">
-                Owner Portal
-              </span>
-              <h3 className="font-display text-2xl font-black uppercase text-white">
-                REVIEW APPROVAL ACCESS
-              </h3>
-              <p className="text-xs text-zinc-400">
-                Enter your administrative PIN to review and approve customer submissions.
-              </p>
-            </div>
-
-            {errorMsg && (
-              <div className="p-3 rounded-xl border border-rose-500/40 bg-rose-950/20 text-rose-300 text-xs">
-                {errorMsg}
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <input
-                type="password"
-                required
-                value={passcode}
-                onChange={(e) => setPasscode(e.target.value)}
-                placeholder="Enter Admin PIN"
-                className="w-full text-center tracking-widest rounded-xl border border-white/10 bg-black/60 px-4 py-3 text-sm text-white focus:border-crimson outline-none font-mono"
-              />
-              <button
-                type="submit"
-                className="w-full rounded-xl bg-crimson py-3 font-display text-xs font-bold uppercase tracking-wider text-white shadow-crimson-glow hover:bg-crimson-600 transition-all"
-              >
-                Unlock Moderation Portal &rarr;
-              </button>
-            </div>
-            <p className="font-mono text-[10px] text-zinc-500">
-              Default authorization code: <code className="text-zinc-400">anivel2026</code>
+            <div style={{ fontSize: "10px", color: "#CB2957", fontFamily: "monospace", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 6 }}>Owner Portal</div>
+            <h3 style={{ fontSize: "22px", fontWeight: 900, color: "#fff", textTransform: "uppercase", margin: "0 0 6px" }}>Review Approval</h3>
+            <p style={{ color: "#71717a", fontSize: "12px", marginBottom: "1.5rem", lineHeight: 1.6 }}>
+              Enter your admin PIN to review and approve customer submissions.
             </p>
+
+            {errorMsg && <div style={{ ...ERROR_STYLE, marginBottom: 12 }}>{errorMsg}</div>}
+
+            <input
+              type="password"
+              required
+              value={passcode}
+              onChange={(e) => setPasscode(e.target.value)}
+              placeholder="Enter Admin PIN"
+              style={{ ...INPUT_STYLE, textAlign: "center", letterSpacing: "0.2em", fontSize: "16px", marginBottom: 10 }}
+            />
+            <button type="submit" style={{ ...BTN_CRIMSON, width: "100%", justifyContent: "center" }}>
+              Unlock Portal →
+            </button>
+            <div style={{ fontSize: "10px", color: "#52525b", fontFamily: "monospace", marginTop: 12 }}>
+              Default PIN: <span style={{ color: "#a1a1aa" }}>anivel2026</span>
+            </div>
           </form>
         ) : (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+          /* ── Moderation Panel ── */
+          <div>
+            {/* Header + Tabs */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid rgba(255,255,255,0.1)", paddingBottom: 16, marginBottom: 16 }}>
               <div>
-                <span className="font-mono text-[10px] uppercase text-crimson font-bold block tracking-wider">
-                  Admin Moderation Mode Active
-                </span>
-                <h3 className="font-display text-2xl font-black uppercase text-white">
-                  REVIEW MODERATION
-                </h3>
+                <div style={{ fontSize: "10px", color: "#CB2957", fontFamily: "monospace", textTransform: "uppercase", letterSpacing: "0.1em" }}>Admin Mode Active</div>
+                <h3 style={{ fontSize: "22px", fontWeight: 900, color: "#fff", textTransform: "uppercase", margin: "2px 0 0" }}>Review Moderation</h3>
               </div>
-
-              {/* Tabs */}
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("pending")}
-                  className={`px-3 py-1.5 rounded-lg font-mono text-xs uppercase font-bold transition-all ${
-                    activeTab === "pending"
-                      ? "bg-crimson text-white shadow-crimson-glow"
-                      : "bg-white/5 text-zinc-400 hover:text-white"
-                  }`}
-                >
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="button" onClick={() => setActiveTab("pending")}
+                  style={{ padding: "6px 14px", borderRadius: 8, border: "none", cursor: "pointer", fontFamily: "monospace", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em",
+                    background: activeTab === "pending" ? "#CB2957" : "rgba(255,255,255,0.08)",
+                    color: activeTab === "pending" ? "#fff" : "#a1a1aa" }}>
                   Pending ({pending.length})
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("approved")}
-                  className={`px-3 py-1.5 rounded-lg font-mono text-xs uppercase font-bold transition-all ${
-                    activeTab === "approved"
-                      ? "bg-emerald-600 text-white"
-                      : "bg-white/5 text-zinc-400 hover:text-white"
-                  }`}
-                >
+                <button type="button" onClick={() => setActiveTab("approved")}
+                  style={{ padding: "6px 14px", borderRadius: 8, border: "none", cursor: "pointer", fontFamily: "monospace", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em",
+                    background: activeTab === "approved" ? "#16a34a" : "rgba(255,255,255,0.08)",
+                    color: activeTab === "approved" ? "#fff" : "#a1a1aa" }}>
                   Live ({approved.length})
                 </button>
               </div>
             </div>
 
-            {successMsg && (
-              <div className="p-3 rounded-xl border border-emerald-500/40 bg-emerald-950/20 text-emerald-300 text-xs">
-                {successMsg}
-              </div>
-            )}
+            {successMsg && <div style={{ ...SUCCESS_STYLE, marginBottom: 12 }}>{successMsg}</div>}
+            {errorMsg && <div style={{ ...ERROR_STYLE, marginBottom: 12 }}>{errorMsg}</div>}
 
             {/* List */}
-            <div className="max-h-[420px] overflow-y-auto space-y-4 pr-1">
+            <div style={{ maxHeight: 440, overflowY: "auto" }}>
               {activeTab === "pending" ? (
                 pending.length === 0 ? (
-                  <div className="py-12 text-center text-xs font-mono text-zinc-500">
+                  <div style={{ textAlign: "center", padding: "3rem 0", color: "#52525b", fontFamily: "monospace", fontSize: "12px" }}>
                     ✓ No pending reviews waiting for approval.
                   </div>
                 ) : (
                   pending.map((item) => (
-                    <div
-                      key={item.id}
-                      className="p-5 rounded-2xl border border-white/10 bg-black/60 space-y-3"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex items-center gap-3">
+                    <div key={item.id} style={CARD_STYLE}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
                           {item.image ? (
-                            <div className="relative h-12 w-12 rounded-full overflow-hidden border border-crimson/40 shrink-0">
-                              <Image
-                                src={item.image}
-                                alt={item.name}
-                                fill
-                                className="object-cover"
-                                unoptimized
-                              />
+                            <div style={{ width: 44, height: 44, borderRadius: "50%", overflow: "hidden", border: "2px solid #CB2957", flexShrink: 0, position: "relative" }}>
+                              <Image src={item.image} alt={item.name} fill className="object-cover" unoptimized />
                             </div>
                           ) : (
-                            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-crimson/20 text-rose-200 font-display font-bold text-xs uppercase">
+                            <div style={{ width: 44, height: 44, borderRadius: "50%", background: "rgba(203,41,87,0.2)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#fda4af", fontWeight: 700, fontSize: "13px", textTransform: "uppercase" }}>
                               {item.name.slice(0, 2)}
                             </div>
                           )}
                           <div>
-                            <h4 className="font-display font-bold text-white text-sm uppercase">
-                              {item.name}
-                            </h4>
-                            <span className="font-mono text-[10px] text-zinc-400 block">
-                              {item.brandOrRole || "Client"}
-                            </span>
-                            <div className="flex items-center gap-0.5 text-crimson pt-0.5">
-                              {[...Array(item.rating)].map((_, i) => (
-                                <Star key={i} className="h-3.5 w-3.5 fill-crimson" />
-                              ))}
+                            <div style={{ fontWeight: 700, color: "#fff", fontSize: "13px", textTransform: "uppercase" }}>{item.name}</div>
+                            <div style={{ color: "#71717a", fontSize: "11px", fontFamily: "monospace" }}>{item.brandOrRole || "Client"}</div>
+                            <div style={{ display: "flex", gap: 2, marginTop: 3 }}>
+                              {[...Array(item.rating)].map((_, i) => <Star key={i} size={12} fill="#CB2957" color="#CB2957" />)}
                             </div>
                           </div>
                         </div>
-
-                        {/* Actions */}
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            disabled={actionLoading}
-                            onClick={() => handleApprove(item.id)}
-                            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-1.5 font-mono text-[11px] uppercase font-bold text-white hover:bg-emerald-500 transition-all disabled:opacity-50"
-                          >
-                            <Check className="h-3.5 w-3.5" />
-                            <span>Approve &amp; Publish</span>
+                        <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                          <button type="button" disabled={actionLoading} onClick={() => handleApprove(item.id)} style={{ ...BTN_GREEN, opacity: actionLoading ? 0.5 : 1 }}>
+                            <Check size={13} /> Approve &amp; Publish
                           </button>
-                          <button
-                            type="button"
-                            disabled={actionLoading}
-                            onClick={() => handleReject(item.id)}
-                            className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-white/5 border border-white/10 text-rose-400 hover:bg-rose-950/40 transition-all"
-                            title="Reject"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
+                          <button type="button" disabled={actionLoading} onClick={() => handleReject(item.id)}
+                            style={{ background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 8, width: 34, height: 34, cursor: "pointer", color: "#f87171", display: "flex", alignItems: "center", justifyContent: "center", opacity: actionLoading ? 0.5 : 1 }}>
+                            <Trash2 size={14} />
                           </button>
                         </div>
                       </div>
-
-                      <p className="text-xs text-zinc-300 font-sans italic border-t border-white/5 pt-2">
+                      <p style={{ color: "#d4d4d8", fontSize: "12px", fontStyle: "italic", marginTop: 10, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.08)" }}>
                         &quot;{item.review}&quot;
                       </p>
                     </div>
                   ))
                 )
-              ) : approved.length === 0 ? (
-                <div className="py-12 text-center text-xs font-mono text-zinc-500">
-                  Currently 0 live reviews on the website.
-                </div>
               ) : (
-                approved.map((item) => (
-                  <div
-                    key={item.id}
-                    className="p-4 rounded-xl border border-white/5 bg-black/40 flex items-center justify-between gap-3"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="flex items-center gap-0.5 text-crimson shrink-0">
-                        {[...Array(item.rating)].map((_, i) => (
-                          <Star key={i} className="h-3 w-3 fill-crimson" />
-                        ))}
-                      </div>
-                      <div className="min-w-0">
-                        <span className="font-display font-bold text-white text-xs uppercase block truncate">
-                          {item.name} {item.brandOrRole ? `(${item.brandOrRole})` : ""}
-                        </span>
-                        <p className="text-[11px] text-zinc-400 truncate italic">
-                          &quot;{item.review}&quot;
-                        </p>
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => handleReject(item.id)}
-                      className="text-zinc-500 hover:text-rose-400 p-1.5 transition-colors shrink-0"
-                      title="Unpublish"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                approved.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "3rem 0", color: "#52525b", fontFamily: "monospace", fontSize: "12px" }}>
+                    No live reviews published yet.
                   </div>
-                ))
+                ) : (
+                  approved.map((item) => (
+                    <div key={item.id} style={{ ...CARD_STYLE, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, color: "#fff", fontSize: "12px", textTransform: "uppercase" }}>
+                          {item.name} {item.brandOrRole ? `(${item.brandOrRole})` : ""}
+                        </div>
+                        <div style={{ display: "flex", gap: 2, margin: "3px 0" }}>
+                          {[...Array(item.rating)].map((_, i) => <Star key={i} size={11} fill="#CB2957" color="#CB2957" />)}
+                        </div>
+                        <div style={{ color: "#71717a", fontSize: "11px", fontStyle: "italic", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 500 }}>
+                          &quot;{item.review}&quot;
+                        </div>
+                      </div>
+                      <button type="button" onClick={() => handleReject(item.id)}
+                        style={{ background: "none", border: "none", cursor: "pointer", color: "#71717a", padding: 8, flexShrink: 0 }} title="Unpublish">
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))
+                )
               )}
             </div>
           </div>
         )}
-      </motion.div>
+      </div>
     </div>
   );
 }
